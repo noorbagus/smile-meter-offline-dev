@@ -1,10 +1,11 @@
-// src/hooks/useCameraKit.ts - Push2Web integration
+// src/hooks/useCameraKit.ts - Push2Web integration with Remote API
 import { useState, useRef, useCallback, useEffect } from 'react';
 import { bootstrapCameraKit, createMediaStreamSource, Transform2D } from '@snap/camera-kit';
 import { Push2Web } from '@snap/push2web';
 import { validateConfig } from '../config/cameraKit';
+import { remoteApiServicesFactory, getRemoteApiServices } from '../utils/remoteApiService';
 import type { CameraState } from './useCameraPermissions';
-import { remoteApiService } from '../utils/RemoteApiService';
+import { Injectable } from '@snap/camera-kit';
 
 let cameraKitInstance: any = null;
 let preloadPromise: Promise<any> | null = null;
@@ -34,48 +35,24 @@ const preloadCameraKit = async () => {
       // Initialize Push2Web
       push2WebInstance = new Push2Web();
       
-      // Bootstrap Camera Kit with Push2Web extension
+      // Bootstrap Camera Kit with Push2Web extension and Remote API services
       cameraKitInstance = await bootstrapCameraKit(
         { 
-          apiToken: import.meta.env.VITE_CAMERA_KIT_API_TOKEN || 'eyJhbGciOiJIUzI1NiIsImtpZCI6IkNhbnZhc1MyU0hNQUNQcm9kIiwidHlwIjoiSldUIn0.eyJhdWQiOiJjYW52YXMtY2FudmFzYXBpIiwiaXNzIjoiY2FudmFzLXMyc3Rva2VuIiwibmJmIjoxNzQ3MDM1OTAyLCJzdWIiOiI2YzMzMWRmYy0zNzEzLTQwYjYtYTNmNi0zOTc2OTU3ZTkyZGF-UFJPRFVDVElPTn5jZjM3ZDAwNy1iY2IyLTQ3YjEtODM2My1jYWIzYzliOGJhM2YifQ.UqGhWZNuWXplirojsPSgZcsO3yu98WkTM1MRG66dsHI'
+          apiToken: import.meta.env.VITE_CAMERA_KIT_API_TOKEN || 'eyJhbGciOiJIUzI1NiIsImtpZCI6IkNhbnZhc1MyU0hNQUNQcm9kIiwidHlwIjoiSldUIn0.eyJhdWQiOiJjYW52YXMtY2FudmFzYXBpIiwiaXNzIjoiY2FudmFzLXMyc3Rva2VuIiwibmJmIjoxNzQ3MDM1OTAyLCJzdWIiOiI2YzMzMWRmYy0zNzEzLTQwYjYtYTNmNi0zOTc2OTU3ZTkyZGF+UFJPRFVDVElPTn5jZjM3ZDAwNy1iY2IyLTQ3YjEtODM2My1jYWIzYzliOGJhM2YifQ.UqGhWZNuWXplirojsPSgZcsO3yu98WkTM1MRG66dsHI'
         },
         (container) => {
           // Provide Push2Web extension
           container.provides(push2WebInstance!.extension);
+          
+          // Provide Remote API Services
+          container.provides(
+            remoteApiServicesFactory.token,
+            (existing: any) => getRemoteApiServices(existing)
+          );
+          
           return container;
         }
       );
-      
-      // Register Remote API service
-      try {
-        // Different ways to register the service - try each one until one works
-        
-        // Method 1: Direct assignment to remoteApiServices array
-        if (typeof cameraKitInstance.remoteApiServices !== 'undefined') {
-          cameraKitInstance.remoteApiServices = [remoteApiService];
-          console.log('Remote API service registered via remoteApiServices array');
-        }
-        // Method 2: Using addRemoteApiService method
-        else if (typeof cameraKitInstance.addRemoteApiService === 'function') {
-          cameraKitInstance.addRemoteApiService(remoteApiService);
-          console.log('Remote API service registered via addRemoteApiService');
-        }
-        // Method 3: Using registerRemoteApiService method
-        else if (typeof cameraKitInstance.registerRemoteApiService === 'function') {
-          cameraKitInstance.registerRemoteApiService(remoteApiService);
-          console.log('Remote API service registered via registerRemoteApiService');
-        }
-        // Method 4: Using provide if available
-        else if (typeof cameraKitInstance.provide === 'function') {
-          cameraKitInstance.provide(remoteApiService);
-          console.log('Remote API service registered via provide method');
-        }
-        else {
-          console.warn('No known method to register Remote API service - lens may not receive responses');
-        }
-      } catch (error) {
-        console.error('Failed to register Remote API service:', error);
-      }
       
       return { cameraKit: cameraKitInstance, push2Web: push2WebInstance };
     } catch (error) {
@@ -212,6 +189,27 @@ export const useCameraKit = (addLog: (message: string) => void) => {
       repository: !!lensRepositoryRef.current
     };
   }, []);
+
+  // Test Remote API services
+  const testRemoteApiServices = useCallback(async (): Promise<boolean> => {
+    if (!cameraKitInstance) {
+      addLog('❌ CameraKit not initialized for API testing');
+      return false;
+    }
+
+    try {
+      addLog('🧪 Testing Remote API services...');
+      // Check if RemoteApiServices are registered
+      const hasRemoteApiServices = !!(cameraKitInstance.container && 
+                                      cameraKitInstance.container.resolve(remoteApiServicesFactory.token));
+      
+      addLog(`📊 Remote API services registered: ${hasRemoteApiServices ? 'Yes ✅' : 'No ❌'}`);
+      return hasRemoteApiServices;
+    } catch (error) {
+      addLog(`❌ Remote API services test failed: ${error}`);
+      return false;
+    }
+  }, [addLog]);
 
   const attachCameraOutput = useCallback((
     canvas: HTMLCanvasElement, 
@@ -428,7 +426,7 @@ export const useCameraKit = (addLog: (message: string) => void) => {
         return true;
       }
 
-      addLog('🎭 Initializing Camera Kit with Push2Web...');
+      addLog('🎭 Initializing Camera Kit with Push2Web & Remote API...');
       addLog(`📐 Adaptive canvas: ${adaptiveConfig.canvas.width}x${adaptiveConfig.canvas.height}`);
       setCameraState('initializing');
       containerRef.current = containerReference;
@@ -444,6 +442,15 @@ export const useCameraKit = (addLog: (message: string) => void) => {
         setupPush2WebEvents(push2Web);
         addLog('✅ Push2Web extension loaded');
       }
+      
+      // Test Remote API services
+      testRemoteApiServices().then(hasServices => {
+        if (hasServices) {
+          addLog('✅ Remote API services ready');
+        } else {
+          addLog('⚠️ Remote API services not registered properly');
+        }
+      });
 
       addLog('🎬 Creating session...');
       const session: any = await withTimeout(cameraKit.createSession(), 5000);
@@ -501,7 +508,7 @@ export const useCameraKit = (addLog: (message: string) => void) => {
       }, 500);
 
       setCameraState('ready');
-      addLog('🎉 Camera Kit + Push2Web ready');
+      addLog('🎉 Camera Kit + Push2Web + Remote API ready');
       return true;
 
     } catch (error: any) {
@@ -510,7 +517,7 @@ export const useCameraKit = (addLog: (message: string) => void) => {
       setCameraState('error');
       return false;
     }
-  }, [currentFacingMode, addLog, attachCameraOutput, cameraState, setupPush2WebEvents]);
+  }, [currentFacingMode, addLog, attachCameraOutput, cameraState, setupPush2WebEvents, testRemoteApiServices]);
 
   const switchCamera = useCallback(async (): Promise<MediaStream | null> => {
     if (!sessionRef.current || !isInitializedRef.current) {
@@ -674,6 +681,7 @@ export const useCameraKit = (addLog: (message: string) => void) => {
     isReady: cameraState === 'ready',
     isInitializing: cameraState === 'initializing',
     subscribePush2Web,
-    getPush2WebStatus
+    getPush2WebStatus,
+    testRemoteApiServices
   };
 };

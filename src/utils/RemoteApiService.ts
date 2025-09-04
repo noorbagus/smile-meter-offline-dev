@@ -1,108 +1,142 @@
-// src/utils/RemoteApiService.ts
-import type { RemoteApiRequest, Lens } from '@snap/camera-kit';
+// src/utils/remoteApiService.ts
 
-// Global reference to access context outside React
-let globalStateRef: any = null;
-export const setGlobalStateRef = (ref: any) => {
-  globalStateRef = ref;
+import { Injectable } from '@snap/camera-kit';
+import type { RemoteApiRequestHandler, RemoteApiRequest, RemoteApiServices, RemoteApiStatus } from '@snap/camera-kit';
+
+// Recording Control API
+const recordingControlService = {
+  apiSpecId: '554881fc-8ced-405b-bfea-f229c5dd9a4f',
+  getRequestHandler(request: RemoteApiRequest): RemoteApiRequestHandler | undefined {
+    const { endpointId } = request;
+    
+    if (endpointId === 'start_recording') {
+      return (reply) => {
+        try {
+          const scene = request.parameters.scene || 'unknown';
+          console.log(`🎬 Recording started for scene: ${scene}`);
+          
+          // Generate a unique recording ID
+          const recordingId = `rec_${Date.now()}_${Math.floor(Math.random() * 1000)}`;
+          
+          // Return success response with recording ID
+          reply({
+            status: 'success' as RemoteApiStatus,
+            metadata: {},
+            body: new TextEncoder().encode(JSON.stringify({
+              success: true,
+              recording_id: recordingId,
+              message: `Recording started for scene: ${scene}`
+            }))
+          });
+        } catch (error) {
+          console.error('Recording start error:', error);
+          reply({
+            status: 'error' as RemoteApiStatus,
+            metadata: { error: String(error) },
+            body: new TextEncoder().encode(JSON.stringify({
+              success: false,
+              error: 'Failed to start recording'
+            }))
+          });
+        }
+      };
+    }
+    
+    if (endpointId === 'stop_recording') {
+      return (reply) => {
+        try {
+          const scene = request.parameters.scene || 'unknown';
+          const recordingId = request.parameters.recording_id || 'unknown';
+          const score = request.parameters.score || '0';
+          
+          console.log(`⏹️ Recording stopped for scene: ${scene}`);
+          console.log(`📊 Recording data: ID=${recordingId}, Score=${score}`);
+          
+          // Return success response
+          reply({
+            status: 'success' as RemoteApiStatus,
+            metadata: {},
+            body: new TextEncoder().encode(JSON.stringify({
+              success: true,
+              recording_id: recordingId,
+              message: `Recording stopped for scene: ${scene}`,
+              score: score
+            }))
+          });
+        } catch (error) {
+          console.error('Recording stop error:', error);
+          reply({
+            status: 'error' as RemoteApiStatus,
+            metadata: { error: String(error) },
+            body: new TextEncoder().encode(JSON.stringify({
+              success: false,
+              error: 'Failed to stop recording'
+            }))
+          });
+        }
+      };
+    }
+    
+    return undefined;
+  }
 };
 
-export class CameraKitRemoteApiService {
-  apiSpecId = 'camera-kit-remote-api'; // This must match the ID in Lens Studio
-  
-  getRequestHandler(request: RemoteApiRequest, lens: Lens) {
-    console.log(`[Remote API] Request received: ${request.endpointId}`, request.parameters);
+// Hadiah Status API
+const hadiahStatusService = {
+  apiSpecId: '1449890e-5eed-4797-8be9-8941ad055157',
+  getRequestHandler(request: RemoteApiRequest): RemoteApiRequestHandler | undefined {
+    const { endpointId } = request;
     
-    switch (request.endpointId) {
-      case 'get_hadiah_status':
-        return this.handleGetHadiahStatus(request);
-      case 'start_recording':
-        return this.handleStartRecording(request);
-      case 'stop_recording':
-        return this.handleStopRecording(request);
-      default:
-        console.warn(`[Remote API] Unknown endpoint: ${request.endpointId}`);
-        return undefined;
+    if (endpointId === 'get_hadiah_status') {
+      return (reply) => {
+        try {
+          // Mock data - in a real application, this would come from a database or external API
+          const hadiahData = {
+            available: true,  // Set to false when prizes are depleted
+            stock_count: 25,
+            last_updated: new Date().toISOString()
+          };
+          
+          console.log('📦 Hadiah status requested:', hadiahData);
+          
+          // Return success response
+          reply({
+            status: 'success' as RemoteApiStatus,
+            metadata: {},
+            body: new TextEncoder().encode(JSON.stringify(hadiahData))
+          });
+        } catch (error) {
+          console.error('Hadiah status error:', error);
+          reply({
+            status: 'error' as RemoteApiStatus,
+            metadata: { error: String(error) },
+            body: new TextEncoder().encode(JSON.stringify({
+              success: false,
+              error: 'Failed to get hadiah status'
+            }))
+          });
+        }
+      };
     }
+    
+    return undefined;
   }
-  
-  private handleGetHadiahStatus(request: RemoteApiRequest) {
-    return {
-      send: () => {
-        // You can replace this with actual API calls to your backend
-        const hadiahState = globalStateRef?.current || { 
-          hadiahAvailable: true, 
-          stockCount: 100
-        };
-        
-        console.log(`[Remote API] Sending hadiah status:`, hadiahState);
-        
-        return {
-          statusCode: 1, // Success
-          body: JSON.stringify({
-            available: hadiahState.hadiahAvailable,
-            stock_count: hadiahState.stockCount
-          })
-        };
-      }
-    };
-  }
-  
-  private handleStartRecording(request: RemoteApiRequest) {
-    return {
-      send: () => {
-        const scene = request.parameters.scene || 'unknown';
-        const recordingId = `rec_${Date.now()}`;
-        
-        console.log(`[Remote API] Starting recording for scene ${scene}, ID: ${recordingId}`);
-        
-        // Update global state
-        if (globalStateRef?.current) {
-          globalStateRef.current.recordingId = recordingId;
-          globalStateRef.current.setRecordingId?.(recordingId);
-        }
-        
-        // Also store in window for backup
-        (window as any).currentRecordingId = recordingId;
-        
-        return {
-          statusCode: 1,
-          body: JSON.stringify({
-            recording_id: recordingId,
-            success: true
-          })
-        };
-      }
-    };
-  }
-  
-  private handleStopRecording(request: RemoteApiRequest) {
-    return {
-      send: () => {
-        const recordingId = request.parameters.recording_id || '';
-        const score = parseInt(request.parameters.score || '0', 10);
-        const scene = request.parameters.scene || '';
-        
-        console.log(`[Remote API] Stopping recording: ID=${recordingId}, score=${score}, scene=${scene}`);
-        
-        // Update global state
-        if (globalStateRef?.current) {
-          globalStateRef.current.currentScore = score;
-          globalStateRef.current.setScore?.(score);
-          globalStateRef.current.recordingId = null;
-          globalStateRef.current.setRecordingId?.(null);
-        }
-        
-        return {
-          statusCode: 1,
-          body: JSON.stringify({
-            success: true
-          })
-        };
-      }
-    };
-  }
-}
+};
 
-// Singleton instance
-export const remoteApiService = new CameraKitRemoteApiService();
+// Function to get all Remote API services
+export const getRemoteApiServices = (existingServices: RemoteApiServices = []): RemoteApiServices => {
+  return [...existingServices, recordingControlService, hadiahStatusService];
+};
+
+// Injectable factory for Camera Kit
+export const remoteApiServicesFactory = {
+  token: Symbol.for('RemoteApiServices'),
+  create: () => getRemoteApiServices()
+};
+
+// Export for direct use
+export default {
+  recordingControlService,
+  hadiahStatusService,
+  getRemoteApiServices
+};
